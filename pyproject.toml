@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "red-transporte-mcp"
+version = "0.1.0"
+description = "Servidor MCP privado para RedTransporteAPI — paraderos, recorridos, predicciones y planificación RAPTOR de Santiago"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.12",
+    "httpx>=0.27",
+    "starlette>=0.37",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+red-transporte-mcp = "red_transporte_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["red_transporte_mcp*"]
