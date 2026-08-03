@@ -31,6 +31,7 @@ from starlette.routing import Mount, Route
 from mcp.server import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 API_URL = os.getenv("RED_TRANSPORTE_API_URL", "https://api.example.com")
@@ -38,6 +39,7 @@ API_TOKEN = os.getenv("RED_TRANSPORTE_API_TOKEN", "")
 MCP_TOKEN = os.getenv("RED_TRANSPORTE_MCP_TOKEN", "")
 MCP_PORT = int(os.getenv("RED_TRANSPORTE_MCP_PORT", "8001"))
 TIMEOUT = float(os.getenv("RED_TRANSPORTE_MCP_TIMEOUT", "30"))
+MCP_PUBLIC_HOST = os.getenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "mcp.example.com")
 
 MIN_QUERY = 1
 MAX_QUERY = 64
@@ -75,6 +77,24 @@ async def app_lifespan(server: MCPServer):
 def _read_only(**extra: bool) -> ToolAnnotations:
     annotations = {"read_only_hint": True, "destructive_hint": False, **extra}
     return ToolAnnotations(**annotations)
+
+
+def _transport_security() -> TransportSecuritySettings:
+    public_host = MCP_PUBLIC_HOST.strip().rstrip(".")
+    allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+    ]
+    if public_host:
+        allowed_hosts.extend([public_host, f"{public_host}:*"])
+        allowed_origins.extend([f"https://{public_host}", f"https://{public_host}:*"])
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
 
 
 def build_mcp() -> MCPServer:
@@ -447,7 +467,12 @@ class _AuthMiddleware(BaseHTTPMiddleware):
 def create_app() -> Starlette:
     """ASGI app: MCP en /mcp, protegido por bearer token cuando está configurado."""
     mcp = build_mcp()
-    inner = mcp.streamable_http_app(stateless_http=True, streamable_http_path="/mcp")
+    inner = mcp.streamable_http_app(
+        stateless_http=True,
+        streamable_http_path="/mcp",
+        transport_security=_transport_security(),
+        host="0.0.0.0",
+    )
 
     @asynccontextmanager
     async def lifespan(app: Starlette):

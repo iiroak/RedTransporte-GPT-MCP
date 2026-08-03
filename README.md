@@ -55,6 +55,7 @@ MCP y reenvía al REST. No carga GTFS en memoria ni duplica el motor.
 | `RED_TRANSPORTE_API_URL` | `https://api.example.com` | Base URL del REST |
 | `RED_TRANSPORTE_API_TOKEN` | _(requerido)_ | Bearer token de la API (crear en `POST /admin/tokens`) |
 | `RED_TRANSPORTE_MCP_TOKEN` | _(requerido para HTTP)_ | Bearer token exigido al cliente MCP |
+| `RED_TRANSPORTE_MCP_PUBLIC_HOST` | `mcp.example.com` | Hostname HTTP permitido por la protección DNS-rebinding |
 | `RED_TRANSPORTE_MCP_PORT` | `8001` | Puerto del transporte HTTP |
 | `RED_TRANSPORTE_MCP_TIMEOUT` | `30` | Timeout de llamadas al REST (segundos) |
 

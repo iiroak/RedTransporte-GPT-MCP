@@ -90,3 +90,31 @@ def test_http_rejects_invalid_mcp_token(monkeypatch):
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"].startswith("Bearer")
+
+
+def test_http_accepts_configured_public_host(monkeypatch):
+    monkeypatch.setenv("RED_TRANSPORTE_MCP_TOKEN", "expected")
+    monkeypatch.setenv("RED_TRANSPORTE_API_TOKEN", "test-api-token")
+    monkeypatch.setenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "mcp.example.com")
+    module = importlib.reload(server_module)
+
+    with TestClient(module.create_app(), base_url="https://mcp.example.com") as client:
+        response = client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Authorization": "Bearer expected",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+            },
+        )
+
+    assert response.status_code == 200
