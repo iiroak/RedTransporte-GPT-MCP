@@ -13,7 +13,6 @@ Transportes:
 from __future__ import annotations
 
 import argparse
-import hmac
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -21,18 +20,25 @@ from typing import Any
 
 import httpx
 import uvicorn
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 from mcp.server import MCPServer
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+
+from red_transporte_mcp.oauth import (
+    OAUTH_SCOPE,
+    RedTransporteOAuthProvider,
+    authorization_server_metadata,
+    consent_endpoint,
+)
 
 API_URL = os.getenv("RED_TRANSPORTE_API_URL", "https://api.example.com")
 API_TOKEN = os.getenv("RED_TRANSPORTE_API_TOKEN", "")
@@ -40,6 +46,9 @@ MCP_TOKEN = os.getenv("RED_TRANSPORTE_MCP_TOKEN", "")
 MCP_PORT = int(os.getenv("RED_TRANSPORTE_MCP_PORT", "8001"))
 TIMEOUT = float(os.getenv("RED_TRANSPORTE_MCP_TIMEOUT", "30"))
 MCP_PUBLIC_HOST = os.getenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "mcp.example.com")
+MCP_BASE_URL = os.getenv("RED_TRANSPORTE_MCP_BASE_URL", f"https://{MCP_PUBLIC_HOST}").rstrip("/")
+MCP_RESOURCE_URL = f"{MCP_BASE_URL}/mcp"
+MCP_OAUTH_SECRET = os.getenv("RED_TRANSPORTE_OAUTH_SECRET", MCP_TOKEN)
 
 MIN_QUERY = 1
 MAX_QUERY = 64
@@ -97,7 +106,17 @@ def _transport_security() -> TransportSecuritySettings:
     )
 
 
-def build_mcp() -> MCPServer:
+def _oauth_provider() -> RedTransporteOAuthProvider:
+    return RedTransporteOAuthProvider(
+        issuer_url=MCP_BASE_URL,
+        resource_url=MCP_RESOURCE_URL,
+        bootstrap_token=MCP_TOKEN,
+        signing_secret=MCP_OAUTH_SECRET,
+    )
+
+
+def build_mcp(provider: RedTransporteOAuthProvider | None = None) -> MCPServer:
+    provider = provider or _oauth_provider()
     mcp = MCPServer(
         name="RedTransporte",
         title="Red Transporte Santiago",
@@ -109,6 +128,13 @@ def build_mcp() -> MCPServer:
             "identificadores alfanuméricos cortos (p. ej. PA433)."
         ),
         lifespan=app_lifespan,
+        auth_server_provider=provider,
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl(MCP_BASE_URL),
+            resource_server_url=AnyHttpUrl(MCP_RESOURCE_URL),
+            required_scopes=[OAUTH_SCOPE],
+            client_registration_options=ClientRegistrationOptions(enabled=False),
+        ),
     )
 
     # ── Paraderos ────────────────────────────────────────────
@@ -435,38 +461,10 @@ def _validate_coords(lat: float, lon: float) -> None:
         raise ToolError("Coordenadas fuera de rango (lat [-90,90], lon [-180,180])")
 
 
-# ── Auth HTTP (deny-by-default) ─────────────────────────────
-
-
-class _AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path == "/health":
-            return await call_next(request)
-        if not MCP_TOKEN:
-            return JSONResponse(
-                {"error": "MCP authentication is not configured"},
-                status_code=503,
-            )
-        auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or not hmac.compare_digest(
-            auth[7:], MCP_TOKEN
-        ):
-            return JSONResponse(
-                {"error": "Unauthorized"},
-                status_code=401,
-                headers={
-                    "WWW-Authenticate": (
-                        'Bearer error="invalid_token", '
-                        'error_description="Invalid MCP token"'
-                    )
-                },
-            )
-        return await call_next(request)
-
-
 def create_app() -> Starlette:
-    """ASGI app: MCP en /mcp, protegido por bearer token cuando está configurado."""
-    mcp = build_mcp()
+    """ASGI app: OAuth-protected MCP plus the ChatGPT consent endpoint."""
+    provider = _oauth_provider()
+    mcp = build_mcp(provider)
     inner = mcp.streamable_http_app(
         stateless_http=True,
         streamable_http_path="/mcp",
@@ -484,10 +482,24 @@ def create_app() -> Starlette:
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "service": "red-transporte-mcp", "version": "0.1.0"})
 
+    async def oauth_metadata(request: Request) -> JSONResponse:
+        return authorization_server_metadata(provider)
+
+    async def register_client(request: Request):
+        return await provider.register_request(request)
+
+    async def consent(request: Request):
+        return await consent_endpoint(request, provider)
+
     app = Starlette(
         lifespan=lifespan,
-        middleware=[Middleware(_AuthMiddleware)],
-        routes=[Route("/health", health, methods=["GET"]), Mount("/", inner)],
+        routes=[
+            Route("/health", health, methods=["GET"]),
+            Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
+            Route("/register", register_client, methods=["POST"]),
+            Route("/oauth/consent", consent, methods=["GET", "POST"]),
+            Mount("/", inner),
+        ],
     )
     return app
 
