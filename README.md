@@ -6,8 +6,8 @@ público de Santiago de Chile: paraderos, recorridos, predicciones en tiempo
 real (iBus + RED web) y planificación RAPTOR.
 
 El repositorio de la API se deja intacto como motor REST/CLI; este proyecto es
-un adaptador MCP que la consume por HTTP. Código libre (GPL-3.0) para quien
-quiera montarlo, pero el endpoint desplegado es de uso **privado** (deny-by-default).
+un adaptador MCP que la consume por HTTP. Código libre para quien quiera
+montarlo; el endpoint HTTP está protegido por defecto (deny-by-default).
 
 ## Capacidades
 
@@ -29,6 +29,9 @@ quiera montarlo, pero el endpoint desplegado es de uso **privado** (deny-by-defa
 Todas las tools son de **solo lectura**. No hay tools de escritura ni de administración.
 
 ## Arquitectura
+
+La guía completa está en [`MCP_USAGE.md`](MCP_USAGE.md): tools, transports,
+OAuth, ChatGPT, OpenCode, despliegue y troubleshooting.
 
 ```text
 ChatGPT / Codex / Claude / opencode
@@ -54,11 +57,11 @@ usa en la pantalla de consentimiento y sigue funcionando para clientes legacy.
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
-| `RED_TRANSPORTE_API_URL` | `https://api.example.com` | Base URL del REST |
+| `RED_TRANSPORTE_API_URL` | `http://localhost:8000` | Base URL del REST |
 | `RED_TRANSPORTE_API_TOKEN` | _(requerido)_ | Bearer token de la API (crear en `POST /admin/tokens`) |
 | `RED_TRANSPORTE_MCP_TOKEN` | _(requerido para HTTP)_ | Bearer token exigido al cliente MCP |
-| `RED_TRANSPORTE_MCP_PUBLIC_HOST` | `mcp.example.com` | Hostname HTTP permitido por la protección DNS-rebinding |
-| `RED_TRANSPORTE_MCP_BASE_URL` | `https://mcp.example.com` | URL canónica del recurso OAuth; el recurso final es `/mcp` |
+| `RED_TRANSPORTE_MCP_PUBLIC_HOST` | `localhost` | Hostname HTTP permitido por la protección DNS-rebinding |
+| `RED_TRANSPORTE_MCP_BASE_URL` | `http://localhost:8001` | URL canónica del recurso OAuth; el recurso final es `/mcp` |
 | `RED_TRANSPORTE_OAUTH_SECRET` | _(deriva del MCP token)_ | Secreto HMAC opcional separado para clientes y tokens OAuth |
 | `RED_TRANSPORTE_MCP_PORT` | `8001` | Puerto del transporte HTTP |
 | `RED_TRANSPORTE_MCP_TIMEOUT` | `30` | Timeout de llamadas al REST (segundos) |
@@ -93,26 +96,25 @@ Liveness: `GET /health` (no authentication; no application data).
 
 1. En ChatGPT web, activa Developer mode en *Settings → Apps → Advanced Settings*.
 2. Crea una app MCP desde *Apps → Create*.
-3. Usa el endpoint `https://mcp.example.com/mcp` y selecciona OAuth.
+3. Usa el endpoint HTTPS de tu despliegue, por ejemplo `https://mcp.example.com/mcp`, y selecciona OAuth.
 4. Pulsa *Scan Tools*; el flujo redirige a la pantalla de consentimiento del MCP.
-5. Introduce el valor de `RED_TRANSPORTE_MCP_TOKEN` desde the configured secret manager.
+5. Introduce el valor de `RED_TRANSPORTE_MCP_TOKEN` desde tu gestor de secretos.
 6. Crea/publica la app y actívala desde el menú de herramientas de un chat.
 
 El MCP publica los metadatos en `/.well-known/oauth-protected-resource/mcp` y
 `/.well-known/oauth-authorization-server`, registra clientes dinámicamente y
 requiere PKCE `S256`. No hay que pegar el token de la API REST en ChatGPT.
 
-## Despliegue (the deployment platform / the reverse proxy)
+## Despliegue (Docker + reverse proxy)
 
-Idea base, ajustar a tu infraestructura:
+Idea base; adapta el proxy, túnel o plataforma a tu infraestructura:
 
-1. Aplicación Docker en the deployment platform (imagen publicada por CI de este repo).
-2. Hostname `mcp.example.com` → túnel the reverse proxy → puerto publicado
-   (p. ej. `published-port → 8001`).
-3. Variables secretas en the deployment platform, nunca en Git: `RED_TRANSPORTE_API_TOKEN`,
+1. Ejecuta la imagen Docker en tu host o plataforma.
+2. Publica un hostname HTTPS, por ejemplo `mcp.example.com`, y enrútalo al puerto HTTP `8001`.
+3. Guarda en el gestor de secretos, nunca en Git: `RED_TRANSPORTE_API_TOKEN`,
    `RED_TRANSPORTE_MCP_TOKEN` y opcionalmente `RED_TRANSPORTE_OAUTH_SECRET`.
 4. Un solo worker (sin estado de sesión; `stateless_http`).
-5. Rate limiting a nivel de the reverse proxy + el de la API.
+5. Añade rate limiting en tu reverse proxy y conserva el rate limit de la API.
 6. Revisar que los logs no contengan tokens ni cuerpos de requests.
 
 ### Docker local

@@ -40,13 +40,18 @@ from red_transporte_mcp.oauth import (
     consent_endpoint,
 )
 
-API_URL = os.getenv("RED_TRANSPORTE_API_URL", "https://api.example.com")
+API_URL = os.getenv("RED_TRANSPORTE_API_URL", "http://localhost:8000")
 API_TOKEN = os.getenv("RED_TRANSPORTE_API_TOKEN", "")
 MCP_TOKEN = os.getenv("RED_TRANSPORTE_MCP_TOKEN", "")
 MCP_PORT = int(os.getenv("RED_TRANSPORTE_MCP_PORT", "8001"))
 TIMEOUT = float(os.getenv("RED_TRANSPORTE_MCP_TIMEOUT", "30"))
-MCP_PUBLIC_HOST = os.getenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "mcp.example.com")
-MCP_BASE_URL = os.getenv("RED_TRANSPORTE_MCP_BASE_URL", f"https://{MCP_PUBLIC_HOST}").rstrip("/")
+MCP_PUBLIC_HOST = os.getenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "localhost")
+_default_base_url = (
+    f"http://{MCP_PUBLIC_HOST}:8001"
+    if MCP_PUBLIC_HOST in {"localhost", "127.0.0.1", "[::1]"}
+    else f"https://{MCP_PUBLIC_HOST}"
+)
+MCP_BASE_URL = os.getenv("RED_TRANSPORTE_MCP_BASE_URL", _default_base_url).rstrip("/")
 MCP_RESOURCE_URL = f"{MCP_BASE_URL}/mcp"
 MCP_OAUTH_SECRET = os.getenv("RED_TRANSPORTE_OAUTH_SECRET", MCP_TOKEN)
 

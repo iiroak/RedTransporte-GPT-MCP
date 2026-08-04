@@ -452,7 +452,7 @@ def _consent_page(message: str | None, ticket: str | None, client_name: str | No
 <style>body{{font:16px system-ui,sans-serif;max-width: thirtyrem;max-width:30rem;margin:4rem auto;padding:0 1rem;color:#202124}}input{{box-sizing:border-box;width:100%;padding:.7rem;margin:.4rem 0 1rem}}button{{padding:.7rem 1rem;background:#2457d6;color:#fff;border:0;border-radius:4px}}.error{{color:#b3261e}}</style></head>
 <body><h1>Authorize RedTransporte</h1>{notice}
 <p><strong>{escaped_client}</strong> requests read-only transit data.</p>
-<p>Enter the MCP access token stored in the configured secret manager to authorize ChatGPT.</p>
+<p>Enter the MCP access token stored in your configured secret manager to authorize ChatGPT.</p>
 <form method="post" action="/oauth/consent">
 <input type="hidden" name="ticket" value="{escaped_ticket}">
 <label for="mcp_token">MCP access token</label>
