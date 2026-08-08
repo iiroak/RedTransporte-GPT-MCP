@@ -16,7 +16,9 @@ import argparse
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import uvicorn
@@ -39,10 +41,31 @@ from red_transporte_mcp.oauth import (
     authorization_server_metadata,
     consent_endpoint,
 )
+from red_transporte_mcp.secret_store import SecretStore
 
-API_URL = os.getenv("RED_TRANSPORTE_API_URL", "http://localhost:8000")
-API_TOKEN = os.getenv("RED_TRANSPORTE_API_TOKEN", "")
-MCP_TOKEN = os.getenv("RED_TRANSPORTE_MCP_TOKEN", "")
+DATA_DIR = os.getenv("RED_TRANSPORTE_DATA_DIR", "").strip()
+_secret_store = SecretStore(Path(DATA_DIR)) if DATA_DIR else None
+
+
+def _secret(name: str, env_name: str) -> str:
+    if _secret_store:
+        stored = _secret_store.get_secret(name)
+        if stored is not None:
+            return stored
+    return os.getenv(env_name, "")
+
+
+def _setting(name: str, env_name: str, default: str) -> str:
+    if _secret_store:
+        stored = _secret_store.get_setting(name)
+        if stored is not None:
+            return stored
+    return os.getenv(env_name, default)
+
+
+API_URL = _setting("api_url", "RED_TRANSPORTE_API_URL", "http://localhost:8000")
+API_TOKEN = _secret("api_token", "RED_TRANSPORTE_API_TOKEN")
+MCP_TOKEN = _secret("mcp_token", "RED_TRANSPORTE_MCP_TOKEN")
 MCP_PORT = int(os.getenv("RED_TRANSPORTE_MCP_PORT", "8001"))
 TIMEOUT = float(os.getenv("RED_TRANSPORTE_MCP_TIMEOUT", "30"))
 MCP_PUBLIC_HOST = os.getenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "localhost")
@@ -52,8 +75,16 @@ _default_base_url = (
     else f"https://{MCP_PUBLIC_HOST}"
 )
 MCP_BASE_URL = os.getenv("RED_TRANSPORTE_MCP_BASE_URL", _default_base_url).rstrip("/")
+MCP_BASE_PATH = "/".join(part for part in urlparse(MCP_BASE_URL).path.split("/") if part)
+if MCP_BASE_PATH:
+    MCP_BASE_PATH = f"/{MCP_BASE_PATH}"
 MCP_RESOURCE_URL = f"{MCP_BASE_URL}/mcp"
-MCP_OAUTH_SECRET = os.getenv("RED_TRANSPORTE_OAUTH_SECRET", MCP_TOKEN)
+_stored_oauth_secret = _secret_store.get_secret("oauth_secret") if _secret_store else None
+MCP_OAUTH_SECRET = (
+    _stored_oauth_secret
+    if _stored_oauth_secret is not None
+    else os.getenv("RED_TRANSPORTE_OAUTH_SECRET", "") or MCP_TOKEN
+)
 
 MIN_QUERY = 1
 MAX_QUERY = 64
@@ -118,6 +149,10 @@ def _oauth_provider() -> RedTransporteOAuthProvider:
         bootstrap_token=MCP_TOKEN,
         signing_secret=MCP_OAUTH_SECRET,
     )
+
+
+def _route_path(path: str) -> str:
+    return f"{MCP_BASE_PATH}{path}" if MCP_BASE_PATH else path
 
 
 def build_mcp(provider: RedTransporteOAuthProvider | None = None) -> MCPServer:
@@ -477,6 +512,19 @@ def create_app() -> Starlette:
         host="0.0.0.0",
     )
 
+    if MCP_BASE_PATH:
+        # The SDK derives this URL at the origin root from the resource path. This
+        # deployment keeps all well-known routes below the configured prefix.
+        resource_metadata_url = AnyHttpUrl(
+            f"{MCP_BASE_URL}/.well-known/oauth-protected-resource/mcp"
+        )
+        for route in inner.routes:
+            if getattr(route, "path", None) == "/mcp":
+                endpoint = getattr(route, "endpoint", None)
+                if hasattr(endpoint, "resource_metadata_url"):
+                    endpoint.resource_metadata_url = resource_metadata_url
+                break
+
     @asynccontextmanager
     async def lifespan(app: Starlette):
         # El session manager inicializa el task group que maneja las sesiones
@@ -490,22 +538,48 @@ def create_app() -> Starlette:
     async def oauth_metadata(request: Request) -> JSONResponse:
         return authorization_server_metadata(provider)
 
+    async def resource_metadata(request: Request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "resource": provider.resource_url,
+                "authorization_servers": [provider.issuer_url],
+                "scopes_supported": [OAUTH_SCOPE],
+                "bearer_methods_supported": ["header"],
+            },
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
     async def register_client(request: Request):
         return await provider.register_request(request)
 
     async def consent(request: Request):
         return await consent_endpoint(request, provider)
 
-    app = Starlette(
-        lifespan=lifespan,
-        routes=[
-            Route("/health", health, methods=["GET"]),
-            Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
-            Route("/register", register_client, methods=["POST"]),
-            Route("/oauth/consent", consent, methods=["GET", "POST"]),
-            Mount("/", inner),
-        ],
+    from red_transporte_mcp.admin import RedAdminController
+
+    admin = RedAdminController(_secret_store)
+
+    routes = [
+        *admin.routes(),
+        Route(_route_path("/health"), health, methods=["GET"]),
+        Route(_route_path("/.well-known/oauth-authorization-server"), oauth_metadata, methods=["GET"]),
+    ]
+    if MCP_BASE_PATH:
+        routes.append(
+            Route(
+                _route_path("/.well-known/oauth-protected-resource/mcp"),
+                resource_metadata,
+                methods=["GET"],
+            )
+        )
+    routes.extend(
+        [
+            Route(_route_path("/register"), register_client, methods=["POST"]),
+            Route(_route_path("/oauth/consent"), consent, methods=["GET", "POST"]),
+            Mount(MCP_BASE_PATH or "/", inner),
+        ]
     )
+    app = Starlette(lifespan=lifespan, routes=routes)
     return app
 
 

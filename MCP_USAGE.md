@@ -105,24 +105,31 @@ el entorno de OpenCode, nunca en un commit.
 
 ### `streamable-http`: ChatGPT y clientes remotos
 
-El endpoint desplegado es:
+El endpoint desplegado es, por defecto:
 
 ```text
 https://mcp.example.com/mcp
 ```
 
+`RED_TRANSPORTE_MCP_BASE_URL` puede incluir un prefijo de ruta. Por ejemplo,
+con `https://mcp.iroak.dev/red`, el endpoint es
+`https://mcp.iroak.dev/red/mcp` y todas las rutas HTTP del MCP quedan bajo
+`/red`.
+
 El servidor publica:
 
 | Endpoint | Uso |
 |---|---|
-| `GET /health` | Liveness sin autenticación |
-| `GET /.well-known/oauth-protected-resource/mcp` | Metadata RFC 9728 |
-| `GET /.well-known/oauth-authorization-server` | Metadata OAuth RFC 8414 |
-| `POST /register` | Dynamic Client Registration |
-| `GET /authorize` | Inicio del consentimiento OAuth |
-| `GET/POST /oauth/consent` | Pantalla que valida el token MCP |
-| `POST /token` | Authorization code y refresh token |
-| `POST /mcp` | Transporte MCP protegido |
+| `GET <prefijo>/health` | Liveness sin autenticación |
+| `GET <prefijo>/.well-known/oauth-protected-resource/mcp` | Metadata RFC 9728 |
+| `GET <prefijo>/.well-known/oauth-authorization-server` | Metadata OAuth RFC 8414 |
+| `POST <prefijo>/register` | Dynamic Client Registration |
+| `GET <prefijo>/authorize` | Inicio del consentimiento OAuth |
+| `GET/POST <prefijo>/oauth/consent` | Pantalla que valida el token MCP |
+| `POST <prefijo>/token` | Authorization code y refresh token |
+| `POST <prefijo>/mcp` | Transporte MCP protegido |
+
+Sin prefijo, `<prefijo>` es vacío y las rutas mantienen sus URLs actuales.
 
 ## Autenticación HTTP
 
@@ -133,7 +140,7 @@ El flujo es OAuth 2.1 authorization code con PKCE `S256`:
 1. ChatGPT solicita metadata del recurso.
 2. ChatGPT registra un cliente público con redirect URI propio.
 3. ChatGPT genera `code_verifier` y `code_challenge`.
-4. El navegador abre `/authorize` y luego la pantalla de consentimiento.
+4. El navegador abre `<prefijo>/authorize` y luego la pantalla de consentimiento.
 5. El usuario introduce el valor de `RED_TRANSPORTE_MCP_TOKEN` desde el gestor de secretos elegido.
 6. El servidor devuelve un authorization code a ChatGPT.
 7. ChatGPT canjea el code por access token y refresh token.
@@ -175,7 +182,7 @@ ChatGPT.
 | `RED_TRANSPORTE_API_TOKEN` | vacío | sí | Token interno para la API |
 | `RED_TRANSPORTE_MCP_TOKEN` | vacío | HTTP | Bootstrap OAuth y bearer legacy |
 | `RED_TRANSPORTE_MCP_PUBLIC_HOST` | `localhost` | no | Allowlist DNS-rebinding |
-| `RED_TRANSPORTE_MCP_BASE_URL` | `http://localhost:8001` | no | Issuer y recurso OAuth |
+| `RED_TRANSPORTE_MCP_BASE_URL` | `http://localhost:8001` | no | Issuer y recurso OAuth; su path opcional es el prefijo HTTP |
 | `RED_TRANSPORTE_OAUTH_SECRET` | deriva del MCP token | no | Secreto HMAC separado recomendado |
 | `RED_TRANSPORTE_MCP_PORT` | `8001` | no | Puerto HTTP |
 | `RED_TRANSPORTE_MCP_TIMEOUT` | `30` | no | Timeout al API REST, en segundos |
@@ -201,7 +208,7 @@ Aplicación:   red-transporte-mcp
 Puerto:       8001
 Hostname:     mcp.example.com
 Origen:       http://127.0.0.1:8001
-Healthcheck:  GET /health
+Healthcheck:  GET <prefijo>/health
 ```
 
 El proceso usa `stateless_http=True`: no dependas de una sesión MCP persistente
@@ -219,8 +226,10 @@ Comprobaciones HTTP mínimas:
 
 ```bash
 BASE=https://mcp.example.com
-curl -fsS "$BASE/health"
-curl -i -X POST "$BASE/mcp" \
+PREFIX=
+# Para un despliegue con prefijo: BASE=https://mcp.iroak.dev; PREFIX=/red
+curl -fsS "$BASE$PREFIX/health"
+curl -i -X POST "$BASE$PREFIX/mcp" \
   -H 'Accept: application/json, text/event-stream' \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}'
@@ -234,8 +243,8 @@ real y refresh.
 
 | Síntoma | Causa probable |
 |---|---|
-| `/health` funciona pero `/mcp` da `401` | Falta OAuth o bearer legacy |
-| ChatGPT no descubre OAuth | Revisar metadata y el endpoint exacto `/mcp` |
+| `<prefijo>/health` funciona pero `<prefijo>/mcp` da `401` | Falta OAuth o bearer legacy |
+| ChatGPT no descubre OAuth | Revisar metadata y el endpoint exacto `<prefijo>/mcp` |
 | `421 Invalid Host header` | `RED_TRANSPORTE_MCP_PUBLIC_HOST` no coincide con el hostname |
 | Tool responde error 401/403 | Falta o no tiene scopes el `RED_TRANSPORTE_API_TOKEN` |
 | Predicciones responden 503 | Fuentes iBus/RED web están temporalmente caídas |

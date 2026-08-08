@@ -124,11 +124,24 @@ def test_http_accepts_configured_public_host(monkeypatch):
     assert response.status_code == 200
 
 
-def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
+@pytest.mark.parametrize(
+    ("base_url", "path_prefix"),
+    [
+        ("https://mcp.example.com", ""),
+        ("https://mcp.iroak.dev/red/", "/red"),
+    ],
+    ids=["root", "path-prefix"],
+)
+def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch, base_url, path_prefix):
     monkeypatch.setenv("RED_TRANSPORTE_MCP_TOKEN", "bootstrap-token")
     monkeypatch.setenv("RED_TRANSPORTE_API_TOKEN", "test-api-token")
-    monkeypatch.setenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", "mcp.example.com")
+    monkeypatch.setenv("RED_TRANSPORTE_MCP_PUBLIC_HOST", urlparse(base_url).hostname)
+    monkeypatch.setenv("RED_TRANSPORTE_MCP_BASE_URL", base_url)
     module = importlib.reload(server_module)
+    canonical_base_url = base_url.rstrip("/")
+
+    def endpoint(path):
+        return f"{path_prefix}{path}"
 
     verifier = "test-code-verifier-with-enough-entropy-123456789"
     challenge = base64.urlsafe_b64encode(
@@ -136,17 +149,37 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
     ).decode().rstrip("=")
     redirect_uri = "https://chatgpt.com/connector/oauth/test"
 
-    with TestClient(module.create_app(), base_url="https://mcp.example.com") as client:
-        metadata = client.get("/.well-known/oauth-authorization-server")
+    origin = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
+    with TestClient(module.create_app(), base_url=origin) as client:
+        health = client.get(endpoint("/health"))
+        assert health.status_code == 200
+
+        metadata = client.get(endpoint("/.well-known/oauth-authorization-server"))
         assert metadata.status_code == 200
         assert metadata.json()["token_endpoint_auth_methods_supported"] == ["none"]
+        assert metadata.json()["issuer"] == canonical_base_url
+        assert metadata.json()["authorization_endpoint"] == f"{canonical_base_url}/authorize"
+        assert metadata.json()["token_endpoint"] == f"{canonical_base_url}/token"
+        assert metadata.json()["registration_endpoint"] == f"{canonical_base_url}/register"
 
-        resource = client.get("/.well-known/oauth-protected-resource/mcp")
+        resource = client.get(endpoint("/.well-known/oauth-protected-resource/mcp"))
         assert resource.status_code == 200
         assert resource.json()["resource"] == module.MCP_RESOURCE_URL
+        assert resource.json()["authorization_servers"][0].rstrip("/") == canonical_base_url
+
+        unauthenticated = client.post(
+            endpoint("/mcp"),
+            headers={"Accept": "application/json, text/event-stream"},
+            json={},
+        )
+        assert unauthenticated.status_code == 401
+        assert (
+            f'resource_metadata="{canonical_base_url}/.well-known/'
+            "oauth-protected-resource/mcp"
+        ) in unauthenticated.headers["www-authenticate"]
 
         registration = client.post(
-            "/register",
+            endpoint("/register"),
             json={
                 "client_name": "ChatGPT",
                 "redirect_uris": [redirect_uri],
@@ -161,7 +194,7 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
         client_id = registration.json()["client_id"]
 
         authorization = client.get(
-            "/authorize",
+            endpoint("/authorize"),
             params={
                 "response_type": "code",
                 "client_id": client_id,
@@ -177,6 +210,12 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
         assert authorization.status_code == 302
 
         consent_location = urlparse(authorization.headers["location"])
+        consent_page = client.get(
+            consent_location.path,
+            params=parse_qs(consent_location.query),
+        )
+        assert consent_page.status_code == 200
+        assert f'action="{endpoint("/oauth/consent")}"' in consent_page.text
         consent = client.post(
             consent_location.path,
             params=parse_qs(consent_location.query),
@@ -190,7 +229,7 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
         assert callback_params["state"] == ["state-123"]
 
         token = client.post(
-            "/token",
+            endpoint("/token"),
             data={
                 "grant_type": "authorization_code",
                 "code": callback_params["code"][0],
@@ -206,7 +245,7 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
         assert token_data["refresh_token"]
 
         mcp_response = client.post(
-            "/mcp",
+            endpoint("/mcp"),
             headers={
                 "Accept": "application/json, text/event-stream",
                 "Authorization": f"Bearer {token_data['access_token']}",
@@ -223,9 +262,10 @@ def test_oauth_pkce_flow_issues_mcp_access_token(monkeypatch):
             },
         )
         assert mcp_response.status_code == 200
+        assert module.MCP_BASE_PATH == path_prefix
 
         refreshed = client.post(
-            "/token",
+            endpoint("/token"),
             data={
                 "grant_type": "refresh_token",
                 "refresh_token": token_data["refresh_token"],
