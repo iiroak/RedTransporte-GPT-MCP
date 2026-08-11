@@ -395,6 +395,7 @@ class RedTransporteOAuthProvider(
 
 async def consent_endpoint(request: Request, provider: RedTransporteOAuthProvider) -> Response:
     ticket = request.query_params.get("ticket")
+    consent_path = request.url.path
     if request.method == "POST":
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         ticket = _first(form, "ticket")
@@ -402,12 +403,12 @@ async def consent_endpoint(request: Request, provider: RedTransporteOAuthProvide
         redirect_uri = provider.approve(ticket or "", supplied_token)
         if redirect_uri:
             return RedirectResponse(redirect_uri, status_code=302, headers={"Cache-Control": "no-store"})
-        return _consent_page("Invalid token or expired authorization request.", ticket)
+        return _consent_page("Invalid token or expired authorization request.", ticket, consent_path=consent_path)
 
     pending = provider.pending_authorization(ticket or "")
     if pending is None:
         return HTMLResponse("Authorization request expired.", status_code=400)
-    return _consent_page(None, ticket, pending.client.client_name)
+    return _consent_page(None, ticket, pending.client.client_name, consent_path=consent_path)
 
 
 def authorization_server_metadata(provider: RedTransporteOAuthProvider) -> JSONResponse:
@@ -442,9 +443,16 @@ def _oauth_error(error: str, description: str, status_code: int) -> JSONResponse
     return _issue_error(error, description, status_code)
 
 
-def _consent_page(message: str | None, ticket: str | None, client_name: str | None = None) -> HTMLResponse:
+def _consent_page(
+    message: str | None,
+    ticket: str | None,
+    client_name: str | None = None,
+    *,
+    consent_path: str,
+) -> HTMLResponse:
     escaped_ticket = html.escape(ticket or "", quote=True)
     escaped_client = html.escape(client_name or "RedTransporte", quote=True)
+    escaped_consent_path = html.escape(consent_path, quote=True)
     notice = f"<p class=error>{html.escape(message)}</p>" if message else ""
     body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Authorize RedTransporte</title>
@@ -453,7 +461,7 @@ def _consent_page(message: str | None, ticket: str | None, client_name: str | No
 <body><h1>Authorize RedTransporte</h1>{notice}
 <p><strong>{escaped_client}</strong> requests read-only transit data.</p>
 <p>Enter the MCP access token stored in your configured secret manager to authorize ChatGPT.</p>
-<form method="post" action="/oauth/consent">
+<form method="post" action="{escaped_consent_path}">
 <input type="hidden" name="ticket" value="{escaped_ticket}">
 <label for="mcp_token">MCP access token</label>
 <input id="mcp_token" name="mcp_token" type="password" autocomplete="current-password" required>
