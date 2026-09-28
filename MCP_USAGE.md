@@ -112,8 +112,8 @@ https://mcp.example.com/mcp
 ```
 
 `RED_TRANSPORTE_MCP_BASE_URL` puede incluir un prefijo de ruta. Por ejemplo,
-con `https://mcp.iroak.dev/red`, el endpoint es
-`https://mcp.iroak.dev/red/mcp` y todas las rutas HTTP del MCP quedan bajo
+con `https://mcp.example.com/red`, el endpoint es
+`https://mcp.example.com/red/mcp` y todas las rutas HTTP del MCP quedan bajo
 `/red`.
 
 El servidor publica:
@@ -192,7 +192,7 @@ usa, `RED_TRANSPORTE_OAUTH_SECRET` deben ser secretos del gestor de secretos
 de tu plataforma.
 No deben aparecer en `.env.example`, logs, README ni comandos guardados.
 
-## Docker y despliegue
+## Docker local
 
 ```bash
 cp .env.example .env
@@ -200,16 +200,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-El compose publica solo `127.0.0.1:8001`. Un reverse proxy o túnel debe terminar
-TLS y reenviar a ese puerto. Un despliegue típico puede usar:
-
-```text
-Aplicación:   red-transporte-mcp
-Puerto:       8001
-Hostname:     mcp.example.com
-Origen:       http://127.0.0.1:8001
-Healthcheck:  GET <prefijo>/health
-```
+La configuración de producción, incluyendo el checkout, el reverse proxy, los
+secretos, las units y los smoke tests, pertenece a la documentación privada de
+infraestructura del operador.
 
 El proceso usa `stateless_http=True`: no dependas de una sesión MCP persistente
 entre requests. Los tokens OAuth son autocontenidos y el authorization code es
@@ -227,7 +220,7 @@ Comprobaciones HTTP mínimas:
 ```bash
 BASE=https://mcp.example.com
 PREFIX=
-# Para un despliegue con prefijo: BASE=https://mcp.iroak.dev; PREFIX=/red
+# Para un despliegue con prefijo: BASE=https://mcp.example.com; PREFIX=/red
 curl -fsS "$BASE$PREFIX/health"
 curl -i -X POST "$BASE$PREFIX/mcp" \
   -H 'Accept: application/json, text/event-stream' \

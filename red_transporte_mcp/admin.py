@@ -23,7 +23,7 @@ def manifest() -> dict[str, Any]:
             "name": "Red Transporte",
             "version": "0.1.0",
             "description": "MCP de consulta read-only para RedTransporteAPI.",
-            "public_url": "https://mcp.iroak.dev/red/mcp",
+            "public_url": f"{os.getenv('RED_TRANSPORTE_MCP_BASE_URL', 'http://127.0.0.1:8001').rstrip('/')}/mcp",
         },
         "config": [
             {

@@ -128,7 +128,7 @@ def test_http_accepts_configured_public_host(monkeypatch):
     ("base_url", "path_prefix"),
     [
         ("https://mcp.example.com", ""),
-        ("https://mcp.iroak.dev/red/", "/red"),
+        ("https://mcp.example.com/red/", "/red"),
     ],
     ids=["root", "path-prefix"],
 )

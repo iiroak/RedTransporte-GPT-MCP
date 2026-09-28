@@ -84,8 +84,8 @@ uv run red-transporte-mcp --transport http --host 0.0.0.0 --port 8001
 ```
 
 Endpoint: `https://<host>/mcp` por defecto. Si `RED_TRANSPORTE_MCP_BASE_URL` es,
-por ejemplo, `https://mcp.iroak.dev/red`, el endpoint es
-`https://mcp.iroak.dev/red/mcp` y las rutas auxiliares también quedan bajo
+por ejemplo, `https://mcp.example.com/red`, el endpoint es
+`https://mcp.example.com/red/mcp` y las rutas auxiliares también quedan bajo
 `/red` (`/red/health`, `/red/register`, `/red/oauth/consent` y los metadatos
 OAuth).
 
@@ -101,7 +101,7 @@ no application data).
 
 1. En ChatGPT web, activa Developer mode en *Settings → Apps → Advanced Settings*.
 2. Crea una app MCP desde *Apps → Create*.
-3. Usa el endpoint HTTPS de tu despliegue, por ejemplo `https://mcp.example.com/mcp` o `https://mcp.iroak.dev/red/mcp`, y selecciona OAuth.
+3. Usa el endpoint HTTPS de tu despliegue, por ejemplo `https://mcp.example.com/mcp`, y selecciona OAuth.
 4. Pulsa *Scan Tools*; el flujo redirige a la pantalla de consentimiento del MCP.
 5. Introduce el valor de `RED_TRANSPORTE_MCP_TOKEN` desde tu gestor de secretos.
 6. Crea/publica la app y actívala desde el menú de herramientas de un chat.
@@ -112,17 +112,12 @@ El MCP publica los metadatos en
 dinámicamente y requiere PKCE `S256`. Sin prefijo, `<prefijo>` es vacío. No hay
 que pegar el token de la API REST en ChatGPT.
 
-## Despliegue (Docker + reverse proxy)
+## Producción
 
-Idea base; adapta el proxy, túnel o plataforma a tu infraestructura:
-
-1. Ejecuta la imagen Docker en tu host o plataforma.
-2. Publica un hostname HTTPS, por ejemplo `mcp.example.com`, y enrútalo al puerto HTTP `8001`.
-3. Guarda en el gestor de secretos, nunca en Git: `RED_TRANSPORTE_API_TOKEN`,
-   `RED_TRANSPORTE_MCP_TOKEN` y opcionalmente `RED_TRANSPORTE_OAUTH_SECRET`.
-4. Un solo worker (sin estado de sesión; `stateless_http`).
-5. Añade rate limiting en tu reverse proxy y conserva el rate limit de la API.
-6. Revisar que los logs no contengan tokens ni cuerpos de requests.
+Este repositorio no documenta un host, LXC, reverse proxy, secretos ni estado
+persistente concreto. El procedimiento de producción pertenece a la documentación
+privada de infraestructura del operador. Revisa allí el runbook antes de instalar
+este servicio.
 
 ### Docker local
 
