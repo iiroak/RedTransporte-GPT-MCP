@@ -20,6 +20,6 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"
+    CMD python -c "import os,urllib.parse,urllib.request; prefix='/'.join(p for p in urllib.parse.urlparse(os.getenv('RED_TRANSPORTE_MCP_BASE_URL','')).path.split('/') if p); path=f'/{prefix}/health' if prefix else '/health'; urllib.request.urlopen(f'http://127.0.0.1:8001{path}')"
 
 ENTRYPOINT ["/app/.venv/bin/red-transporte-mcp", "--transport", "http", "--host", "0.0.0.0", "--port", "8001"]
