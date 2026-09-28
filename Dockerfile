@@ -10,6 +10,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY red_transporte_mcp/ ./red_transporte_mcp/
 
 RUN uv sync --locked --no-dev \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app \
     && useradd --system --gid app --home /app app \
     && chown -R app:app /app
